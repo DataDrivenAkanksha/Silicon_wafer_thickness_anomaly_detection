@@ -61,7 +61,7 @@ loc_cols = [f"loc{i+1}" for i in range(9)]
 X = df[loc_cols].values
 mean_vec = X.mean(axis=0)
 cov = np.cov(X, rowvar=False)
-inv_cov = np.linalg.inv(cov)
+inv_cov = np.linalg.pinv(cov)
 
 df["mahal_dist"] = [mahalanobis(x, mean_vec, inv_cov) for x in X]
 threshold = np.sqrt(chi2.ppf(1 - alpha, df=len(loc_cols)))
@@ -97,3 +97,4 @@ st.dataframe(anomalies[["batch", "mahal_dist"] + loc_cols], use_container_width=
 
 # Download anomalies
 st.download_button("📥 Download Anomalies CSV", anomalies.to_csv(index=False), "anomalies.csv", "text/csv")
+
