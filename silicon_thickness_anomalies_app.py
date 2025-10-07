@@ -23,7 +23,7 @@ if uploaded_file:
     st.success("✅ File uploaded successfully!")
 else:
     st.info("ℹ️ Using sample wafer thickness dataset (OpenMV)")
-    url = "https://datahub.io/core/datapackage-factory-openMV/r/silicon_wafer_thickness.csv"
+    url = "https://openmv.net/file/silicon-wafer-thickness.csv"
     df = pd.read_csv(url, header=None)
 
 # Process Data
@@ -78,3 +78,4 @@ if df is not None and not df.empty:
     st.download_button("📥 Download Anomalies CSV", anomalies.to_csv(index=False), "anomalies.csv", "text/csv")
 else:
     st.error("❌ No data loaded.")
+
