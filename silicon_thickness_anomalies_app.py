@@ -1,4 +1,4 @@
-# streamlit_wafer_anomaly.py
+# silicon_thickness_anomalies_app.py
 
 import streamlit as st
 import pandas as pd
@@ -6,6 +6,7 @@ import numpy as np
 from scipy.stats import chi2
 import matplotlib.pyplot as plt
 import seaborn as sns
+import io
 
 st.set_page_config(page_title="Wafer Thickness Anomaly Detection", layout="wide")
 st.title("🧪 Silicon Wafer Thickness Anomaly Detection")
@@ -17,65 +18,82 @@ alpha = st.sidebar.select_slider(
 )
 uploaded_file = st.sidebar.file_uploader("Upload CSV File (9 columns)", type=["csv"])
 
-# Load data (either uploaded or sample)
+# Small fallback sample dataset
+sample_csv = """
+735.1,734.9,734.8,734.7,735.0,734.9,734.8,734.7,734.9
+734.8,734.7,734.9,734.9,734.6,734.8,734.7,734.6,734.8
+734.9,734.9,734.8,734.7,734.9,734.9,734.8,734.7,734.9
+734.6,734.5,734.7,734.6,734.8,734.5,734.7,734.6,734.7
+734.9,734.8,734.9,734.9,734.8,734.8,734.9,734.9,734.8
+735.0,735.1,735.0,734.9,735.1,735.0,735.1,735.1,735.0
+"""  # Add more rows as needed
+
+# Load data
 if uploaded_file:
     df = pd.read_csv(uploaded_file, header=None)
     st.success("✅ File uploaded successfully!")
 else:
-    st.info("ℹ️ Using sample wafer thickness dataset (OpenMV)")
-    url = "https://openmv.net/file/silicon-wafer-thickness.csv"
-    df = pd.read_csv(url, header=None)
+    st.info("ℹ️ Using small built-in sample wafer thickness data")
+    df = pd.read_csv(io.StringIO(sample_csv.strip()), header=None)
 
-# Process Data
-if df is not None and not df.empty:
-    df.columns = [f"loc{i+1}" for i in range(9)]
-    df["batch"] = np.arange(1, len(df)+1)
+# Clean and validate data
+try:
+    df = df.apply(pd.to_numeric, errors="coerce")
+    df = df.dropna()
+    if df.shape[1] != 9:
+        st.error("❌ Dataset must have exactly 9 columns (for 9 wafer locations).")
+        st.stop()
+except Exception as e:
+    st.error(f"❌ Error processing data: {e}")
+    st.stop()
 
-    # Mahalanobis
-    def mahalanobis(x, mean_vec, inv_cov):
-        d = x - mean_vec
-        return np.sqrt(d @ inv_cov @ d.T)
+# Rename columns
+df.columns = [f"loc{i+1}" for i in range(9)]
+df["batch"] = np.arange(1, len(df)+1)
 
-    loc_cols = [f"loc{i+1}" for i in range(9)]
-    X = df[loc_cols].values
-    mean_vec = X.mean(axis=0)
-    cov = np.cov(X, rowvar=False)
-    inv_cov = np.linalg.inv(cov)
+# Mahalanobis distance function
+def mahalanobis(x, mean_vec, inv_cov):
+    d = x - mean_vec
+    return np.sqrt(d @ inv_cov @ d.T)
 
-    df["mahal_dist"] = [mahalanobis(x, mean_vec, inv_cov) for x in X]
-    threshold = np.sqrt(chi2.ppf(1 - alpha, df=len(loc_cols)))
-    df["is_anomaly"] = df["mahal_dist"] > threshold
-    anomalies = df[df["is_anomaly"]]
+# Calculate Mahalanobis distances
+loc_cols = [f"loc{i+1}" for i in range(9)]
+X = df[loc_cols].values
+mean_vec = X.mean(axis=0)
+cov = np.cov(X, rowvar=False)
+inv_cov = np.linalg.inv(cov)
 
-    st.subheader("📄 Preview of Dataset")
-    st.dataframe(df.head(), use_container_width=True)
+df["mahal_dist"] = [mahalanobis(x, mean_vec, inv_cov) for x in X]
+threshold = np.sqrt(chi2.ppf(1 - alpha, df=len(loc_cols)))
+df["is_anomaly"] = df["mahal_dist"] > threshold
+anomalies = df[df["is_anomaly"]]
 
-    st.success(f"🚨 Detected {len(anomalies)} anomalies (α = {alpha})")
+# Preview
+st.subheader("📄 Data Preview")
+st.dataframe(df.head(), use_container_width=True)
 
-    # Plot distances
-    st.subheader("📊 Mahalanobis Distance per Batch")
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(df["batch"], df["mahal_dist"], label="Distance", marker="o")
-    ax.axhline(threshold, color="red", linestyle="--", label=f"Threshold ({threshold:.2f})")
-    ax.set_xlabel("Batch")
-    ax.set_ylabel("Mahalanobis Distance")
-    ax.set_title("Mahalanobis Distance vs Batch")
-    ax.legend()
-    st.pyplot(fig)
+st.success(f"🚨 Detected {len(anomalies)} anomalies (α = {alpha}, threshold ≈ {threshold:.2f})")
 
-    # Boxplot of locations
-    st.subheader("📦 Thickness by Location")
-    fig2, ax2 = plt.subplots(figsize=(10, 4))
-    sns.boxplot(data=df[loc_cols], ax=ax2)
-    ax2.set_title("Wafer Thickness per Measurement Location")
-    st.pyplot(fig2)
+# Plot Mahalanobis distance
+st.subheader("📊 Mahalanobis Distance per Batch")
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(df["batch"], df["mahal_dist"], label="Distance", marker="o")
+ax.axhline(threshold, color="red", linestyle="--", label=f"Threshold ({threshold:.2f})")
+ax.set_xlabel("Batch")
+ax.set_ylabel("Mahalanobis Distance")
+ax.set_title("Mahalanobis Distance per Batch")
+ax.legend()
+st.pyplot(fig)
 
-    # Show anomalies
-    st.subheader("🚨 Anomalous Batches")
-    st.dataframe(anomalies[["batch", "mahal_dist"] + loc_cols], use_container_width=True)
+# Boxplot
+st.subheader("📦 Thickness Boxplot by Location")
+fig2, ax2 = plt.subplots(figsize=(10, 4))
+sns.boxplot(data=df[loc_cols], ax=ax2)
+st.pyplot(fig2)
 
-    # Download
-    st.download_button("📥 Download Anomalies CSV", anomalies.to_csv(index=False), "anomalies.csv", "text/csv")
-else:
-    st.error("❌ No data loaded.")
+# Show anomalies
+st.subheader("🚨 Anomalous Batches")
+st.dataframe(anomalies[["batch", "mahal_dist"] + loc_cols], use_container_width=True)
 
+# Download anomalies
+st.download_button("📥 Download Anomalies CSV", anomalies.to_csv(index=False), "anomalies.csv", "text/csv")
